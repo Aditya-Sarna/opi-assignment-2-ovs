@@ -4,7 +4,7 @@
 #
 # Bootstraps, end to end:
 #   1. A two-node KinD cluster from a custom node image with Open vSwitch baked in
-#   2. Flannel (default pod network), Multus (secondary networks), OVS CNI
+#   2. kindnet (default pod network), Multus (secondary networks), OVS CNI
 #   3. An OVS bridge 'br1' on every node, interconnected across nodes via VXLAN
 #   4. KubeVirt (with software emulation when /dev/kvm is absent)
 #   5. The assignment workloads (manifests.yaml): 2 CirrOS VMs + 1 pod on br1
@@ -133,13 +133,15 @@ create_cluster() {
   kind delete cluster --name "${CLUSTER_NAME}" 2>/dev/null || true
   docker rm -f "${CLUSTER_NAME}-control-plane" 2>/dev/null || true
 
-  log "Creating single-node kind cluster '${CLUSTER_NAME}'"
+  log "Creating single-node kind cluster '${CLUSTER_NAME}' (default CNI: kindnet)"
+  # Use kind's built-in kindnet as the default pod network. Flannel-on-kind is
+  # fragile on recent kernels/K8s (crash-loops, missing /run/flannel/subnet.env),
+  # which breaks every pod sandbox through Multus. kindnet is rock-solid and
+  # serves as Multus's default delegate just as well.
   local kind_cfg=/tmp/kind-$$.yaml
   cat > "${kind_cfg}" <<EOF
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
-networking:
-  disableDefaultCNI: true
 nodes:
   - role: control-plane
 EOF
@@ -151,7 +153,7 @@ EOF
         containerPath: /dev/kvm
 EOF
   fi
-  if ! kind create cluster --name "${CLUSTER_NAME}" --wait 0 --config="${kind_cfg}"; then
+  if ! kind create cluster --name "${CLUSTER_NAME}" --wait 150s --config="${kind_cfg}"; then
     log "KinD create failed — collecting logs"
     kind export logs --name "${CLUSTER_NAME}" /tmp/kind-logs-$$ 2>/dev/null || true
     docker logs "${CLUSTER_NAME}-control-plane" 2>&1 | tail -30 || true
@@ -176,29 +178,10 @@ install_ovs_in_nodes() {
   done
 }
 
-install_cni_plugins() {
-  local oci="$1" node arch cni_ver=1.6.2
-  arch="$(kubectl get nodes -o jsonpath='{.items[0].status.nodeInfo.architecture}')"
-  log "Installing standard CNI plugins (bridge, host-local, ...) on KinD node"
-  for node in $(kind get nodes --name "${CLUSTER_NAME}"); do
-    ${oci} exec "${node}" bash -c "
-      set -e
-      mkdir -p /opt/cni/bin
-      curl -fsSL -o /tmp/cni.tgz \
-        'https://github.com/containernetworking/plugins/releases/download/v${cni_ver}/cni-plugins-linux-${arch}-v${cni_ver}.tgz'
-      tar xzf /tmp/cni.tgz -C /opt/cni/bin
-      rm -f /tmp/cni.tgz
-      test -x /opt/cni/bin/bridge
-      ls /opt/cni/bin/bridge /opt/cni/bin/host-local
-    "
-  done
-}
-
-install_flannel() {
-  log "Installing Flannel as the default pod network"
-  kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
-  kubectl -n kube-flannel rollout status daemonset/kube-flannel-ds --timeout=300s 2>/dev/null || true
+wait_node_ready() {
+  log "Waiting for the node to be Ready (kindnet default CNI)"
   kubectl wait --for=condition=Ready nodes --all --timeout=300s
+  kubectl -n kube-system rollout status daemonset/kindnet --timeout=180s 2>/dev/null || true
 }
 
 # ---------------------------------------------------------------------------
@@ -298,8 +281,8 @@ kubevirt_stuck_diagnostics() {
   kubectl -n kubevirt get events --sort-by=.lastTimestamp 2>/dev/null | tail -25 || true
   echo "----- DIAGNOSTICS: CNI conf on node -----"
   ${OCI} exec "$(kind_node)" ls -la /etc/cni/net.d 2>/dev/null || true
-  echo "----- DIAGNOSTICS: multus / flannel pods -----"
-  kubectl get pods -A 2>/dev/null | grep -Ei 'multus|flannel|ovs-cni' || true
+  echo "----- DIAGNOSTICS: multus / kindnet / ovs-cni pods -----"
+  kubectl get pods -A 2>/dev/null | grep -Ei 'multus|kindnet|flannel|ovs-cni' || true
   echo "----------------------------------------------"
 }
 
@@ -618,8 +601,7 @@ main() {
   preflight_disk
   docker system prune -f >/dev/null 2>&1 || true
   create_cluster
-  install_cni_plugins "${OCI}"
-  install_flannel
+  wait_node_ready
   install_ovs_in_nodes "${OCI}"
   setup_ovs_vxlan "${OCI}"
   install_multus
