@@ -264,6 +264,9 @@ wait_kubevirt_available() {
     total="$(kubectl -n kubevirt get pods --no-headers 2>/dev/null | wc -l | tr -d ' ')"
     log "KubeVirt ${phase}: ${ready}/${total} pods Running (${elapsed}s / ${timeout}s; image pulls can take several minutes)"
     kubectl -n kubevirt get pods --no-headers 2>/dev/null | awk '$3!="Running"{print "  pending:", $1, $3}' | head -5 || true
+    if [[ -n "${GITHUB_ACTIONS:-}" ]] && (( elapsed > 0 && elapsed % 300 == 0 )); then
+      kubectl -n kubevirt describe pod -l kubevirt.io=virt-operator 2>/dev/null | tail -20 || true
+    fi
     sleep 15
     elapsed=$((elapsed + 15))
   done

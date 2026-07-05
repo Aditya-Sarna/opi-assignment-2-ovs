@@ -14,7 +14,7 @@ permissions:
 jobs:
   capture:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 240
     env:
       VMI_WAIT_TIMEOUT: "1800"
 
