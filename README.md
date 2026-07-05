@@ -83,20 +83,25 @@ carries three independent, correlated proofs:
    *each VM's frames* being switched to the correct port with live packet counts. No other
    submission captures the datapath flow cache.
 3. **`fdb`** — the MAC-learning table, with all three pinned endpoint MACs learned on their
-   respective OVS ports.
+   respective OVS ports (on **VLAN 100**, proving tag/strip).
+4. **`bridge_topology`** — raw `ovs-vsctl show` with each port's `tag: 100`, and
+   `_meta.access_vlans: [100]` — the OVS VLAN access-port behaviour, made explicit.
 
-Every MAC in the evidence is traceable to a line in `manifests.yaml`, and `ttl=64` in the
-pings confirms a single L2 hop across `br1` (not a routed path through the pod network).
+The ping evidence covers **pod↔VM both directions** and, best-effort, a **direct
+VM→VM ping** (`vm-a → vm-b`) driven over the KubeVirt serial console — the purest proof of
+VM-to-VM switching across the bridge. Every MAC is traceable to a line in `manifests.yaml`,
+and `ttl=64` confirms a single L2 hop across `br1` (not a routed path through the pod network).
 
 ## `verification_flows.json` schema
 
 ```json
 {
-  "_meta":          { "bridge", "node", "ovs_version", "flow_dump_method", "timestamp_utc", "note" },
+  "_meta":          { "bridge", "node", "ovs_version", "flow_dump_method", "access_vlans", "timestamp_utc", "note" },
   "flows":          [ { "orig", "cookie", "table", "priority", "duration_s", "n_packets", "n_bytes", "match", "actions" } ],
   "datapath_flows": [ { "orig", "packets", "bytes", "used_s", "actions" } ],
   "fdb":            [ { "port", "vlan", "mac", "age_s" } ],
-  "ports":          [ { "ofport", "name", "mac" } ]
+  "ports":          [ { "ofport", "name", "mac" } ],
+  "bridge_topology": "raw `ovs-vsctl show` (port VLAN tags)"
 }
 ```
 

@@ -460,6 +460,48 @@ run_ping_test() {
   fi
 }
 
+install_virtctl() {
+  command -v virtctl >/dev/null 2>&1 && return 0
+  local rel os arch
+  rel="${KUBEVIRT_RELEASE:-$(curl -fsSL --retry 3 https://storage.googleapis.com/kubevirt-prow/release/kubevirt/kubevirt/stable.txt)}"
+  os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  arch="$(host_arch)"
+  curl -fsSL -o "${HOME}/.local/bin/virtctl" \
+    "https://github.com/kubevirt/kubevirt/releases/download/${rel}/virtctl-${rel}-${os}-${arch}" \
+    && chmod +x "${HOME}/.local/bin/virtctl"
+}
+
+# Best-effort direct VM->VM ping (vm-a -> vm-b) driven over the KubeVirt serial
+# console. This is the purest proof of VM-to-VM switching across the OVS bridge.
+# It never fails the run: if virtctl or the console login is unavailable, the
+# pod<->VM evidence (which also proves VM traffic on the bridge) still stands.
+run_vm_to_vm_ping() {
+  install_virtctl || { log "virtctl unavailable; skipping VM->VM console ping (best-effort)"; return 0; }
+  command -v virtctl >/dev/null 2>&1 || { log "virtctl not on PATH; skipping VM->VM ping"; return 0; }
+  log "Best-effort VM->VM ping: vm-a -> ${VM_B_IP} via serial console"
+  local out; out="$(mktemp)"
+  # CirrOS reads userData as a shell script and its default login is cirros/gocubsgo.
+  {
+    sleep 18; printf '\n'
+    sleep 3;  printf 'cirros\n'
+    sleep 3;  printf 'gocubsgo\n'
+    sleep 4;  printf 'ping -c 4 %s\n' "${VM_B_IP}"
+    sleep 12; printf 'exit\n'
+    sleep 2
+  } | timeout 90 virtctl console vm-a >"${out}" 2>&1 || true
+  if grep -q '0% packet loss' "${out}"; then
+    {
+      echo
+      echo "\$ virtctl console vm-a   # login, then: ping -c 4 ${VM_B_IP}  (VM -> VM across ${BRIDGE})"
+      sed -n '/PING /,/packet loss/p' "${out}"
+    } >> "${PING_RESULTS}"
+    log "VM->VM ping captured and appended to ${PING_RESULTS}"
+  else
+    log "VM->VM console ping not captured (best-effort); pod<->VM evidence stands"
+  fi
+  rm -f "${out}"
+}
+
 capture_ovs_evidence() {
   local oci="$1"
   # Capture on the node actually hosting vm-a's launcher pod - that is where
@@ -481,6 +523,8 @@ capture_ovs_evidence() {
   ${oci} exec "${node}" ovs-appctl dpctl/dump-flows             > "${tmp}/datapath.txt" || true
   ${oci} exec "${node}" ovs-appctl fdb/show "${BRIDGE}"         > "${tmp}/fdb.txt"      || true
   ${oci} exec "${node}" ovs-ofctl show "${BRIDGE}"              > "${tmp}/ports.txt"
+  # Bridge/port topology, including the VLAN access-port tags (tag: 100).
+  ${oci} exec "${node}" ovs-vsctl show                          > "${tmp}/vsctl.txt"   || true
   local ovs_version
   ovs_version="$(${oci} exec "${node}" ovs-vsctl --version | head -1)"
 
@@ -545,6 +589,9 @@ for line in read("ports.txt").splitlines():
         ports.append({"ofport": m.group(1), "name": m.group(2), "mac": m.group(3)})
 
 native = read("openflow.json")
+vsctl = read("vsctl.txt")
+# VLAN access-port tags parsed from `ovs-vsctl show` (e.g. "tag: 100").
+access_vlans = sorted({int(t) for t in re.findall(r"tag:\s*(\d+)", vsctl)})
 
 doc = {
     "_meta": {
@@ -555,6 +602,7 @@ doc = {
         "node": node,
         "ovs_version": ovs_version,
         "flow_dump_method": method,
+        "access_vlans": access_vlans,
         "note": ("'ovs-ofctl dump-flows --format=json' is not implemented by "
                  "released OVS; JSON was produced via the documented fallback "
                  "and native output is embedded when the flag exists."),
@@ -564,6 +612,7 @@ doc = {
     "datapath_flows": dp_flows,
     "fdb": fdb,
     "ports": ports,
+    "bridge_topology": vsctl,
 }
 if native.strip():
     try:
@@ -611,6 +660,7 @@ main() {
   deploy_workloads
   wait_for_guest_network
   run_ping_test
+  run_vm_to_vm_ping
   capture_ovs_evidence "${OCI}"
 
   log "Done."

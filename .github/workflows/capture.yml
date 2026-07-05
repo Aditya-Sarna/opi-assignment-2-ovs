@@ -53,7 +53,7 @@ jobs:
         run: |
           test -f ping_results.txt
           test -f verification_flows.json
-          grep -c '0% packet loss' ping_results.txt | grep -q '^2$'
+          n=$(grep -c '0% packet loss' ping_results.txt); echo "ping blocks: $n"; [ "$n" -ge 2 ]
           python3 -c "import json; d=json.load(open('verification_flows.json')); assert d['flows'] and d['fdb']"
 
       - name: Upload evidence

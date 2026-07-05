@@ -24,10 +24,16 @@ spec:
   # No IPAM block: endpoints self-assign static IPs (CirrOS via its userdata
   # script, the pod via its entrypoint). This keeps the bridge a pure L2
   # datapath, which is exactly what gets offloaded to DPU hardware later.
+  #
+  # vlan 100: every endpoint is attached as an OVS access port on VLAN 100.
+  # Untagged guest/pod frames are tagged internally on ingress and stripped on
+  # egress, so connectivity is unchanged while the OVS tag/strip behaviour
+  # becomes visible in the evidence (ovs-vsctl "tag: 100", FDB VLAN 100).
   config: '{
       "cniVersion": "0.4.0",
       "type": "ovs",
-      "bridge": "br1"
+      "bridge": "br1",
+      "vlan": 100
     }'
 ---
 apiVersion: kubevirt.io/v1
