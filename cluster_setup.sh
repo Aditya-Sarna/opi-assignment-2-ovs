@@ -291,8 +291,26 @@ restore_virt_operator() {
   kubectl -n kubevirt rollout status deploy/virt-operator --timeout=300s
 }
 
+preload_kubevirt_images() {
+  local release="$1"
+  log "Pre-loading KubeVirt images into KinD (CI disk/pull optimization)"
+  local imgs=(
+    "quay.io/kubevirt/virt-operator:${release}"
+    "quay.io/kubevirt/virt-api:${release}"
+    "quay.io/kubevirt/virt-controller:${release}"
+    "quay.io/kubevirt/virt-handler:${release}"
+    "quay.io/kubevirt/virt-launcher:${release}"
+    "quay.io/kubevirt/cirros-container-disk-demo:latest"
+  )
+  for img in "${imgs[@]}"; do
+    docker pull "${img}"
+    kind load docker-image "${img}" --name "${CLUSTER_NAME}"
+  done
+}
+
 install_kubevirt() {
-  local release patch_json
+  local release patch_json kv_timeout=900
+  [[ -n "${GITHUB_ACTIONS:-}" ]] && kv_timeout=1800
   if needs_cross_arch_vms; then
     release="${KUBEVIRT_RELEASE:-v1.9.0-rc.0}"
     log "Arm64 without KVM: installing KubeVirt ${release} with cross-architecture VMs"
@@ -303,9 +321,10 @@ install_kubevirt() {
     patch_json='{}'
   fi
   export KUBEVIRT_RELEASE="${release}"
+  [[ -n "${GITHUB_ACTIONS:-}" ]] && preload_kubevirt_images "${release}"
   kubectl apply -f "https://github.com/kubevirt/kubevirt/releases/download/${release}/kubevirt-operator.yaml"
   kubectl apply -f "https://github.com/kubevirt/kubevirt/releases/download/${release}/kubevirt-cr.yaml"
-  wait_kubevirt_available 900
+  wait_kubevirt_available "${kv_timeout}"
 
   # No /dev/kvm => software emulation fallback for same-arch guests (linux/amd64 CI).
   if ! node_has_kvm && ! needs_cross_arch_vms; then

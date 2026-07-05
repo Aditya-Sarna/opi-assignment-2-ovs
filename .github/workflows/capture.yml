@@ -26,10 +26,17 @@ jobs:
         run: df -h && docker system df || true
 
       - name: Free disk space on runner
-        run: |
-          docker system prune -af || true
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
-          df -h
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+
+      - name: Show disk after cleanup
+        run: df -h && docker system df || true
 
       - name: Run cluster_setup.sh
         run: |
