@@ -15,6 +15,8 @@ jobs:
   capture:
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    env:
+      VMI_WAIT_TIMEOUT: "1800"
 
     steps:
       - name: Checkout
