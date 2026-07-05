@@ -1,5 +1,4 @@
-ping_results.txt
-verification_flows.json
 .DS_Store
+artifacts/
 *.log
 /tmp/
