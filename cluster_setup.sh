@@ -272,14 +272,35 @@ wait_kubevirt_available() {
     total="$(kubectl -n kubevirt get pods --no-headers 2>/dev/null | wc -l | tr -d ' ')"
     log "KubeVirt ${phase}: ${ready}/${total} pods Running (${elapsed}s / ${timeout}s; image pulls can take several minutes)"
     kubectl -n kubevirt get pods --no-headers 2>/dev/null | awk '$3!="Running"{print "  pending:", $1, $3}' | head -5 || true
-    if [[ -n "${GITHUB_ACTIONS:-}" ]] && (( elapsed > 0 && elapsed % 300 == 0 )); then
-      kubectl -n kubevirt describe pod -l kubevirt.io=virt-operator 2>/dev/null | tail -20 || true
+    if (( elapsed == 120 || elapsed == 300 )); then
+      kubevirt_stuck_diagnostics || true
     fi
     sleep 15
     elapsed=$((elapsed + 15))
   done
-  kubectl -n kubevirt get pods -o wide || true
+  kubevirt_stuck_diagnostics || true
   die "KubeVirt did not become Available within ${timeout}s"
+}
+
+# Dump the real reason a virt-* pod is stuck (Events, CNI, node, kubelet).
+kubevirt_stuck_diagnostics() {
+  local pod
+  echo "----- DIAGNOSTICS: node -----"
+  kubectl get nodes -o wide 2>/dev/null || true
+  echo "----- DIAGNOSTICS: kubevirt pods -----"
+  kubectl -n kubevirt get pods -o wide 2>/dev/null || true
+  pod="$(kubectl -n kubevirt get pods -l kubevirt.io=virt-operator -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)"
+  if [[ -n "${pod}" ]]; then
+    echo "----- DIAGNOSTICS: describe ${pod} (Events only) -----"
+    kubectl -n kubevirt describe pod "${pod}" 2>/dev/null | sed -n '/Events:/,$p' || true
+  fi
+  echo "----- DIAGNOSTICS: kubevirt events -----"
+  kubectl -n kubevirt get events --sort-by=.lastTimestamp 2>/dev/null | tail -25 || true
+  echo "----- DIAGNOSTICS: CNI conf on node -----"
+  ${OCI} exec "$(kind_node)" ls -la /etc/cni/net.d 2>/dev/null || true
+  echo "----- DIAGNOSTICS: multus / flannel pods -----"
+  kubectl get pods -A 2>/dev/null | grep -Ei 'multus|flannel|ovs-cni' || true
+  echo "----------------------------------------------"
 }
 
 # v1.9.0-rc.0 ships a ValidatingAdmissionPolicy whose CEL vars assume every
