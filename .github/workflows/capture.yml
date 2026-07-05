@@ -35,6 +35,12 @@ jobs:
           large-packages: true
           docker-images: true
 
+      - name: Cache KubeVirt image archive
+        uses: actions/cache@v4
+        with:
+          path: /tmp/kubevirt-images.tar
+          key: kubevirt-images-v1.8.4-${{ hashFiles('cluster_setup.sh') }}
+
       - name: Show disk after cleanup
         run: df -h && docker system df || true
 

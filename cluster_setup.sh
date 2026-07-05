@@ -134,8 +134,8 @@ create_cluster() {
   docker rm -f "${CLUSTER_NAME}-control-plane" 2>/dev/null || true
 
   log "Creating single-node kind cluster '${CLUSTER_NAME}'"
-  # disableDefaultCNI: node stays NotReady until Flannel — use --wait 0 to skip that wait.
-  if ! kind create cluster --name "${CLUSTER_NAME}" --wait 0 --config=- <<EOF
+  local kind_cfg=/tmp/kind-$$.yaml
+  cat > "${kind_cfg}" <<EOF
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 networking:
@@ -143,7 +143,15 @@ networking:
 nodes:
   - role: control-plane
 EOF
-  then
+  if [[ -n "${GITHUB_ACTIONS:-}" ]] && [[ -e /dev/kvm ]]; then
+    log "GHA: passing host /dev/kvm into the KinD node"
+    cat >> "${kind_cfg}" <<'EOF'
+    extraMounts:
+      - hostPath: /dev/kvm
+        containerPath: /dev/kvm
+EOF
+  fi
+  if ! kind create cluster --name "${CLUSTER_NAME}" --wait 0 --config="${kind_cfg}"; then
     log "KinD create failed — collecting logs"
     kind export logs --name "${CLUSTER_NAME}" /tmp/kind-logs-$$ 2>/dev/null || true
     docker logs "${CLUSTER_NAME}-control-plane" 2>&1 | tail -30 || true
@@ -295,7 +303,7 @@ restore_virt_operator() {
 }
 
 preload_kubevirt_images() {
-  local release="$1"
+  local release="$1" tar="${KUBEVIRT_IMAGE_TAR:-/tmp/kubevirt-images.tar}"
   log "Pre-loading KubeVirt images into KinD (CI disk/pull optimization)"
   local imgs=(
     "quay.io/kubevirt/virt-operator:${release}"
@@ -303,12 +311,22 @@ preload_kubevirt_images() {
     "quay.io/kubevirt/virt-controller:${release}"
     "quay.io/kubevirt/virt-handler:${release}"
     "quay.io/kubevirt/virt-launcher:${release}"
+    "quay.io/kubevirt/virt-exportproxy:${release}"
     "quay.io/kubevirt/cirros-container-disk-demo:latest"
   )
-  for img in "${imgs[@]}"; do
-    docker pull "${img}"
-    kind load docker-image "${img}" --name "${CLUSTER_NAME}"
-  done
+  if [[ ! -f "${tar}" ]]; then
+    log "Pulling ${#imgs[@]} KubeVirt images (parallel) into ${tar}"
+    local pids=() img
+    for img in "${imgs[@]}"; do
+      docker pull "${img}" &
+      pids+=($!)
+    done
+    for pid in "${pids[@]}"; do wait "${pid}"; done
+    docker save "${imgs[@]}" -o "${tar}"
+  else
+    log "Reusing existing image archive ${tar}"
+  fi
+  kind load image-archive "${tar}" --name "${CLUSTER_NAME}"
 }
 
 install_kubevirt() {
@@ -326,7 +344,15 @@ install_kubevirt() {
   export KUBEVIRT_RELEASE="${release}"
   [[ -n "${GITHUB_ACTIONS:-}" ]] && preload_kubevirt_images "${release}"
   kubectl apply -f "https://github.com/kubevirt/kubevirt/releases/download/${release}/kubevirt-operator.yaml"
+  if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+    kubectl -n kubevirt patch deployment virt-operator --type merge -p '{"spec":{"replicas":1}}'
+  fi
   kubectl apply -f "https://github.com/kubevirt/kubevirt/releases/download/${release}/kubevirt-cr.yaml"
+  if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+    log "GHA: enabling useEmulation (nested KVM is unreliable on Actions runners)"
+    kubectl -n kubevirt patch kubevirt kubevirt --type merge \
+      -p '{"spec":{"configuration":{"developerConfiguration":{"useEmulation":true}}}}'
+  fi
   wait_kubevirt_available "${kv_timeout}"
 
   # No /dev/kvm => software emulation fallback for same-arch guests (linux/amd64 CI).
