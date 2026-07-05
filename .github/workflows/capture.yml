@@ -1,0 +1,50 @@
+name: Capture OVS Evidence
+
+# Produces REAL ping_results.txt and verification_flows.json on GitHub's Linux runner.
+# No Multipass needed. Push this repo to GitHub → Actions → Run workflow → download artifacts.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master, assignment-2]
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show disk
+        run: df -h && docker system df || true
+
+      - name: Free disk space on runner
+        run: |
+          docker system prune -af || true
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
+          df -h
+
+      - name: Run cluster_setup.sh
+        run: |
+          chmod +x cluster_setup.sh
+          ./cluster_setup.sh
+
+      - name: Verify artifacts
+        run: |
+          test -f ping_results.txt
+          test -f verification_flows.json
+          grep -c '0% packet loss' ping_results.txt | grep -q '^2$'
+          python3 -c "import json; d=json.load(open('verification_flows.json')); assert d['flows'] and d['fdb']"
+
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ovs-evidence
+          path: |
+            ping_results.txt
+            verification_flows.json
