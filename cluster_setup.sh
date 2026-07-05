@@ -3,19 +3,20 @@
 # cluster_setup.sh - Cloud-Native OVS Datapath Challenge (OPI Assignment 2)
 #
 # Bootstraps, end to end:
-#   1. A two-node KinD cluster from a custom node image with Open vSwitch baked in
-#   2. kindnet (default pod network), Multus (secondary networks), OVS CNI
-#   3. An OVS bridge 'br1' on every node, interconnected across nodes via VXLAN
-#   4. KubeVirt (with software emulation when /dev/kvm is absent)
+#   1. A single-node KinD cluster (kindnet as the default pod network / Multus delegate)
+#   2. Open vSwitch installed on the node + bridge 'br1'
+#   3. Multus (secondary networks) and OVS-CNI
+#   4. KubeVirt (hardware-accelerated with /dev/kvm; emulation/cross-arch fallback otherwise)
 #   5. The assignment workloads (manifests.yaml): 2 CirrOS VMs + 1 pod on br1
 # then verifies the datapath and regenerates the artifacts:
 #   - ping_results.txt         raw stdout of pings crossing the OVS bridge
 #   - verification_flows.json  machine-readable flow/FDB/port evidence
 #
 # Requirements: docker (or podman), curl, python3. kind/kubectl are installed
-# automatically into ~/.local/bin if missing. Linux x86_64 with KVM gives the
-# smoothest run; arm64 is handled (host-passthrough patch) but needs KVM for
-# guest boot; without KVM, x86_64 falls back to TCG emulation automatically.
+# automatically into ~/.local/bin if missing. Linux x86_64 with KVM (incl. GitHub
+# Actions) gives the smoothest run and real captures in minutes; without KVM the
+# script enables KubeVirt emulation, and on arm64 it runs the guests as amd64 via
+# the CrossArchitectureVirtualization gate (slow, TCG).
 #
 # Usage:
 #   ./cluster_setup.sh              # full bootstrap + verification
