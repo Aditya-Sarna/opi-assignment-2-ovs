@@ -45,22 +45,39 @@ def parse_ping_directions(ping):
     return directions
 
 
+CI_RUN = "https://github.com/Aditya-Sarna/opi-assignment-2-ovs/actions/runs/28827886376"
+
+
 def parse_execution_mode(path):
     if not path or not path.exists():
         return {}
     text = path.read_text()
-    use_emulation = "true" if re.search(r"useEmulation=true", text) else ""
-    if "=== KubeVirt developerConfiguration.useEmulation ===" in text:
-        block = text.split("=== KubeVirt developerConfiguration.useEmulation ===", 1)[1]
-        first = block.strip().splitlines()[0].strip()
-        if first and not first.startswith("#"):
-            use_emulation = first
+    use_emulation = ""
+    for header in (
+        "=== KubeVirt useEmulation ===",
+        "=== KubeVirt developerConfiguration.useEmulation ===",
+    ):
+        if header not in text:
+            continue
+        block = text.split(header, 1)[1]
+        for line in block.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("==="):
+                break
+            if stripped and not stripped.startswith("#"):
+                use_emulation = stripped
+                break
+        break
+    if not use_emulation and re.search(r"useEmulation=true", text):
+        use_emulation = "true"
     accel = "-accel kvm" if "-accel kvm" in text else ("-accel tcg" if "-accel tcg" in text else "")
-    kvm_present = "present" in text.lower() and "/dev/kvm" in text
+    kvm_present = "/dev/kvm" in text and "(no /dev/kvm)" not in text
+    vmx_m = re.search(r"=== vmx/svm CPU flags \(count\) ===\s*\n(\d+)", text)
     return {
         "useEmulation": use_emulation,
         "accel": accel,
         "kvmPresent": kvm_present,
+        "vmxCount": int(vmx_m.group(1)) if vmx_m else None,
         "raw": text.strip(),
     }
 
@@ -71,11 +88,23 @@ def main():
     before_path = Path(sys.argv[3]) if len(sys.argv) > 3 else None
     after_path = Path(sys.argv[4]) if len(sys.argv) > 4 else None
     exec_path = Path(sys.argv[5]) if len(sys.argv) > 5 else vflows_path.parent / "evidence" / "execution_mode.txt"
+    kvm_path = vflows_path.parent / "evidence" / "kvm_proof.txt"
 
     evidence = json.loads(vflows_path.read_text())
     ping = ping_path.read_text()
     before = before_path.read_text() if before_path and before_path.exists() else ""
     after = after_path.read_text() if after_path and after_path.exists() else ""
+    kvm_proof = kvm_path.read_text().strip() if kvm_path.exists() else ""
+
+    execution_mode = parse_execution_mode(exec_path if exec_path.exists() else None)
+    if kvm_proof:
+        vmx_m = re.search(r"=== vmx/svm CPU flags \(count\) ===\s*\n(\d+)", kvm_proof)
+        if vmx_m:
+            execution_mode["vmxCount"] = int(vmx_m.group(1))
+        if not execution_mode.get("accel") and "-accel kvm" in kvm_proof:
+            execution_mode["accel"] = "-accel kvm"
+        if "/dev/kvm" in kvm_proof:
+            execution_mode["kvmPresent"] = True
 
     cf = [f for f in evidence.get("flows", []) if "nw_src" in (f.get("match") or "")]
     active_mf = [f for f in evidence.get("datapath_flows", []) if (f.get("packets") or 0) > 0]
@@ -93,7 +122,8 @@ def main():
         "pingDirections": parse_ping_directions(ping),
         "flowsBefore": before,
         "flowsAfter": after,
-        "executionMode": parse_execution_mode(exec_path if exec_path.exists() else None),
+        "executionMode": execution_mode,
+        "kvmProof": kvm_proof,
         "stats": {
             "classifierRules": len(cf),
             "classifierMinPackets": min((f.get("n_packets") or 0) for f in cf) if cf else 0,
@@ -105,7 +135,7 @@ def main():
         },
         "links": {
             "repo": "https://github.com/Aditya-Sarna/opi-assignment-2-ovs",
-            "ci": "https://github.com/Aditya-Sarna/opi-assignment-2-ovs/actions/runs/28821392090",
+            "ci": CI_RUN,
             "diagram": "https://raw.githubusercontent.com/Aditya-Sarna/opi-assignment-2-ovs/main/diagrams/implemented_software_datapath_topology.png",
             "submit": "https://github.com/Aditya-Sarna/opi-assignment-2-ovs/blob/main/SUBMIT.md",
         },

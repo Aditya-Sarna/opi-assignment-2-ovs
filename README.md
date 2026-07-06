@@ -16,10 +16,7 @@ yourself.
   populated `flows` and `fdb`, classifier rules with `n_packets > 0`, an evidence bundle
   under `evidence/`, and a parser round-trip that reproduces the same shape. A green run is
   itself an assertion that the evidence is genuine.
-- **Execution mode:** GHA runner has `/dev/kvm` but `cluster_setup.sh` sets `useEmulation=true`
-  in CI (nested-KVM inside KinD containers is unreliable there), so QEMU uses `-accel tcg`.
-  On a bare-metal Linux host, the script auto-detects and takes the KVM path. See
-  `evidence/execution_mode.txt` and `evidence/kvm_proof.txt`.
+- **Execution mode:** On GitHub Actions, the workflow enables `/dev/kvm` (udev `0666`), bind-mounts it into the KinD node, and runs QEMU with **`-accel kvm`** (`useEmulation` disabled). See `evidence/execution_mode.txt` and `evidence/kvm_proof.txt`.
 
 ## Deliverables (assignment-required + first-class supporting evidence)
 
@@ -78,7 +75,7 @@ optional — the pod-based pings run regardless.
 | Environment | Behavior |
 |---|---|
 | Linux + `/dev/kvm`, bare-metal or dedicated VM | KubeVirt stable, hardware-accelerated KVM guests, fast (~30s boot). |
-| GitHub Actions `ubuntu-latest` | `/dev/kvm` present but `useEmulation=true` set by `cluster_setup.sh` (nested-KVM in KinD is flaky in CI). QEMU uses TCG. OVS evidence identical. **This is how the committed artifacts were produced.** |
+| GitHub Actions `ubuntu-latest` | **Real nested KVM:** udev opens `/dev/kvm`, KinD `extraMounts` pass it through, QEMU `-accel kvm`. OVS + ping evidence regenerated every push. **Committed artifacts from [run #28827886376](https://github.com/Aditya-Sarna/opi-assignment-2-ovs/actions/runs/28827886376).** |
 | Linux, no KVM | KubeVirt `useEmulation` (TCG) fallback for same-arch guests. |
 | Apple Silicon (arm64), no KVM | KubeVirt v1.9 + `CrossArchitectureVirtualization`; guests run as amd64 under TCG. |
 

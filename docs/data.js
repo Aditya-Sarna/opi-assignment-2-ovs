@@ -323,11 +323,13 @@ window.APP_DATA = {
   "flowsBefore": "NXST_FLOW reply (xid=0x4):\n cookie=0x0, duration=175.170s, table=0, n_packets=103, n_bytes=8490, idle_age=1, priority=0 actions=NORMAL\n",
   "flowsAfter": "NXST_FLOW reply (xid=0x4):\n cookie=0x0, duration=45.231s, table=0, n_packets=14, n_bytes=1372, idle_age=0, priority=100,ip,nw_src=10.10.0.10 actions=NORMAL\n cookie=0x0, duration=45.128s, table=0, n_packets=14, n_bytes=1372, idle_age=0, priority=100,ip,nw_src=10.10.0.11 actions=NORMAL\n cookie=0x0, duration=45.015s, table=0, n_packets=8, n_bytes=784, idle_age=1, priority=100,ip,nw_src=10.10.0.20 actions=NORMAL\n cookie=0x0, duration=44.998s, table=0, n_packets=8, n_bytes=336, idle_age=3, priority=90,arp actions=NORMAL\n cookie=0x0, duration=44.876s, table=0, n_packets=15, n_bytes=1260, idle_age=5, priority=0 actions=NORMAL\n",
   "executionMode": {
-    "useEmulation": "true",
-    "accel": "-accel tcg",
+    "useEmulation": "",
+    "accel": "-accel kvm",
     "kvmPresent": true,
-    "raw": "=== Execution mode of the committed run (GitHub Actions ubuntu-latest) ===\ngenerated_by:      cluster_setup.sh capture_ovs_evidence()\ntimestamp_utc:     2026-07-06T20:14:43Z\nbridge:            br1\nnode:              ovs-kubevirt-control-plane\novs_version:       ovs-vsctl (Open vSwitch) 3.5.0\nflow_dump_method:  parsed-from-text\naccess_vlans:      [100]\n\n=== KubeVirt developerConfiguration.useEmulation ===\ntrue\n# cluster_setup.sh sets useEmulation=true when running in GITHUB_ACTIONS, even\n# if /dev/kvm is present (which it is on ubuntu-latest). The reason: nested-KVM\n# inside a KinD container on GHA is unreliable under load and causes random SIGILL\n# crashes. So virt-launcher runs QEMU under -accel tcg (software emulation, TCG).\n# On a bare-metal Linux host with reliable nested-KVM, the script takes the KVM\n# path automatically. See evidence/kvm_proof.txt for full detail.\n\n=== /dev/kvm on the KinD node ===\npresent (mounted via extraMounts from the GHA runner into the KinD container).\n(virt-launcher still uses TCG because useEmulation=true; see above.)\n\n=== QEMU accelerator flag on virt-launcher-vm-a ===\n-accel tcg\n# Matches useEmulation=true. The OVS datapath evidence is identical regardless\n# of whether QEMU uses KVM or TCG; only boot speed differs.\n\n=== ovs-vsctl --version on node ===\novs-vsctl (Open vSwitch) 3.5.0"
+    "vmxCount": 4,
+    "raw": "=== KubeVirt useEmulation ===\n\n\n=== /dev/kvm on node ovs-kubevirt-control-plane ===\ncrw-rw-rw- 1 root render 10, 232 Jul  6 22:40 /dev/kvm\n\n=== QEMU accelerator flag on virt-launcher-vm-a ===\n-accel kvm\n\n=== ovs-vsctl --version on node ===\novs-vsctl (Open vSwitch) 3.5.0\n\n=== node ===\novs-kubevirt-control-plane"
   },
+  "kvmProof": "=== /dev/kvm on runner / KinD node ===\ncrw-rw-rw- 1 root render 10, 232 Jul  6 22:40 /dev/kvm\n\n=== vmx/svm CPU flags (count) ===\n4\n\n=== KubeVirt useEmulation ===\n\n=== QEMU accel flag (virt-launcher-vm-a) ===\n-accel kvm",
   "stats": {
     "classifierRules": 3,
     "classifierMinPackets": 8,
@@ -339,7 +341,7 @@ window.APP_DATA = {
   },
   "links": {
     "repo": "https://github.com/Aditya-Sarna/opi-assignment-2-ovs",
-    "ci": "https://github.com/Aditya-Sarna/opi-assignment-2-ovs/actions/runs/28821392090",
+    "ci": "https://github.com/Aditya-Sarna/opi-assignment-2-ovs/actions/runs/28827886376",
     "diagram": "https://raw.githubusercontent.com/Aditya-Sarna/opi-assignment-2-ovs/main/diagrams/implemented_software_datapath_topology.png",
     "submit": "https://github.com/Aditya-Sarna/opi-assignment-2-ovs/blob/main/SUBMIT.md"
   },

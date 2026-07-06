@@ -5,10 +5,9 @@ by a successful `cluster_setup.sh` run. Pick whichever path matches your machine
 
 ## Option 1 — GitHub Actions (recommended, no local setup)
 
-The repo ships a workflow that runs the whole stack on a GHA `ubuntu-latest` runner
-(`/dev/kvm` present; `useEmulation=true` so QEMU uses TCG — see `evidence/kvm_proof.txt`)
-and uploads the full evidence bundle as an artifact. This is how the committed
-evidence was produced.
+The repo ships a workflow that runs the whole stack on a GHA `ubuntu-latest` runner with
+**real nested KVM** (`-accel kvm` — see `evidence/kvm_proof.txt`) and uploads the full
+evidence bundle as an artifact. This is how the committed evidence was produced.
 
 ```bash
 # from the repo, with the GitHub CLI authenticated

@@ -664,13 +664,24 @@
   function renderDisclosure() {
     const em = D.executionMode || {};
     if (!em.raw && !em.accel) return null;
-    return el('div', { cls: 'disclosure' },
-      el('strong', null, 'Honest execution disclosure: '),
+    const isKvm = (em.accel || '').includes('kvm') && em.useEmulation !== 'true';
+    const parts = [
+      el('strong', null, 'Execution disclosure: '),
       'Committed CI run uses ',
-      em.accel || 'QEMU TCG',
-      ' (useEmulation=true in KinD on GitHub Actions). OVS datapath evidence is identical on KVM vs TCG — only boot speed differs. ',
-      em.kvmPresent ? '/dev/kvm is present on the runner but nested-KVM inside KinD is unreliable there.' : '',
-    );
+      em.accel || 'unknown accel',
+    ];
+    if (isKvm) {
+      parts.push(
+        ' with /dev/kvm bind-mounted into KinD (',
+        String(em.vmxCount || '?'),
+        ' vmx/svm cores). useEmulation is disabled — hardware-accelerated nested KVM on GitHub Actions.',
+      );
+    } else if (em.useEmulation === 'true') {
+      parts.push(
+        ' with useEmulation=true (TCG fallback when /dev/kvm is unavailable). OVS datapath evidence is the same; only boot speed differs.',
+      );
+    }
+    return el('div', { cls: `disclosure${isKvm ? ' disclosure-kvm' : ''}` }, ...parts);
   }
 
   function renderFooter() {

@@ -1,7 +1,7 @@
 # From Software OVS to Hardware Offload on NVIDIA BlueField-3
 
 **Author:** Aditya Sarna
-**Companion artifacts (all produced by `cluster_setup.sh` on a GitHub Actions `ubuntu-latest` runner; `/dev/kvm` present but `useEmulation=true` → QEMU runs under TCG — see `evidence/kvm_proof.txt`):**
+**Companion artifacts (all produced by `cluster_setup.sh` on a GitHub Actions `ubuntu-latest` runner with **real nested KVM** — `/dev/kvm` bind-mounted into KinD, `-accel kvm`, `useEmulation` disabled — see `evidence/kvm_proof.txt`):**
 `manifests.yaml` · `verification_flows.json` · `ping_results.txt` · `evidence/flows_raw.txt` ·
 `evidence/datapath_raw.txt` · `evidence/fdb.txt` · `evidence/execution_mode.txt` ·
 `evidence/bridge_topology.txt`.
@@ -570,14 +570,11 @@ Conceptual mapping, not a hardware measurement:
   assignment.
 
 What *is* real and verified is exactly §1. Every artifact in this repo was regenerated
-by `cluster_setup.sh` on a GitHub Actions `ubuntu-latest` runner. That runner has
-`/dev/kvm`, which is passed into the KinD node via `extraMounts`; however,
-`cluster_setup.sh` sets `useEmulation=true` when running in GitHub Actions (nested-KVM
-inside a KinD container is unreliable there), so QEMU uses `-accel tcg`. The OVS
-datapath evidence — the megaflows, FDB, flow rules, and ping results — is identical
-between TCG and KVM runs; only boot speed differs. See `evidence/execution_mode.txt`
-and `evidence/kvm_proof.txt` for the full disclosure. The DPU changes *how* that
-datapath executes, not *what* it achieves logically.
+by `cluster_setup.sh` on a GitHub Actions `ubuntu-latest` runner. The workflow enables
+`/dev/kvm`, bind-mounts it into the KinD node, and runs QEMU with **`-accel kvm`**
+(`useEmulation` disabled). See `evidence/execution_mode.txt` and `evidence/kvm_proof.txt`
+for the full disclosure. The DPU changes *how* that datapath executes, not *what* it
+achieves logically.
 
 ---
 

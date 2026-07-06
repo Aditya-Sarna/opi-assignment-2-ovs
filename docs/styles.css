@@ -898,6 +898,14 @@ body {
   line-height: 1.55;
 }
 
+.disclosure-kvm {
+  background: #ecfdf5;
+  border-color: rgba(5, 150, 105, 0.25);
+  color: var(--text-muted);
+}
+
+.disclosure-kvm strong { color: var(--green); }
+
 .disclosure strong { color: var(--yellow); }
 
 @keyframes fadeUp {

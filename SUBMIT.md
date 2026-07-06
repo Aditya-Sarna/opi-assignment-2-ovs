@@ -87,8 +87,8 @@ This should show `mac learned on port N, VLAN 100` and at least two megaflows
 ## Step 5 — Check the execution mode disclosure (30 sec)
 
 ```bash
-cat evidence/execution_mode.txt   # shows useEmulation=true, -accel tcg, explains why
-cat evidence/kvm_proof.txt        # shows /dev/kvm present; explains TCG choice on GHA
+cat evidence/execution_mode.txt   # useEmulation disabled, -accel kvm
+cat evidence/kvm_proof.txt        # /dev/kvm in KinD node, vmx flags, -accel kvm
 ```
 
 ## Step 6 — Reproduce in CI (optional, ~20 min)
