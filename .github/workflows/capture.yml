@@ -61,31 +61,20 @@ jobs:
           test -f evidence/execution_mode.txt
           n=$(grep -c '0% packet loss' ping_results.txt); echo "ping 0%-loss blocks: $n"; [ "$n" -ge 4 ]
           python3 -c "import json; d=json.load(open('verification_flows.json')); assert d['flows'] and d['fdb']"
-          # Assert classifier rules actually fired (nw_src= rules must have n_packets > 0)
-          python3 -c "
-import json, sys
-d = json.load(open('verification_flows.json'))
-classifier = [f for f in d['flows'] if 'nw_src' in f.get('match','')]
-if not classifier:
-    sys.exit('ERROR: no nw_src= classifier rules found in flows')
-zero = [f for f in classifier if f.get('n_packets',0) == 0]
-if zero:
-    sys.exit(f'ERROR: classifier rules with n_packets=0: {[f[\"match\"] for f in zero]}')
-print('classifier rules OK:', [(f[\"match\"], f[\"n_packets\"]) for f in classifier])
-"
+          # Assert classifier rules fired (nw_src= rules must have n_packets > 0).
+          # Shell-only to avoid YAML/Python indentation conflicts.
+          for ip in 10.10.0.10 10.10.0.11 10.10.0.20; do
+            n=$(grep "nw_src=${ip}" evidence/flows_raw.txt | grep -oE 'n_packets=[0-9]+' | cut -d= -f2 | head -1)
+            [ "${n:-0}" -gt 0 ] || { echo "ERROR: nw_src=${ip} has n_packets=${n:-0}"; exit 1; }
+            echo "  nw_src=${ip} -> n_packets=${n}"
+          done
+          echo "classifier rules OK"
           # Confirm the raw-text evidence is a valid input to the standalone parser.
           python3 flows_to_json.py --bundle evidence --bridge br1 > /tmp/roundtrip.json
           python3 -c "import json; d=json.load(open('/tmp/roundtrip.json')); assert d['flows'] and d['fdb'] and d['datapath_flows']"
-          # B3: print n_packets per classifier rule so every run shows flow-hit evidence
-          echo "=== flow-hit summary (n_packets per nw_src= classifier rule) ==="
-          python3 -c "
-          import json
-          d = json.load(open('verification_flows.json'))
-          classifier = [f for f in d['flows'] if 'nw_src' in f.get('match','') or 'arp' in f.get('match','')]
-          for f in classifier:
-              print(f'  {f[\"match\"]:<30s}  n_packets={f[\"n_packets\"]}')
-          print(f'  datapath_flows: {len(d[\"datapath_flows\"])}   fdb_entries: {len(d[\"fdb\"])}')
-          "
+          # Flow-hit summary — single-line python3 -c to stay within YAML block scalar.
+          echo "=== flow-hit summary ==="
+          python3 -c "import json; d=json.load(open('verification_flows.json')); [print(f'  {f[\"match\"]:<30s}  n_packets={f[\"n_packets\"]}') for f in d['flows'] if 'nw_src' in f.get('match','') or 'arp' in f.get('match','')]; print(f'  datapath_flows={len(d[\"datapath_flows\"])}  fdb={len(d[\"fdb\"])}')"
 
       - name: Upload evidence
         uses: actions/upload-artifact@v4
