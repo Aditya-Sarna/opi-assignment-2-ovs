@@ -1,5 +1,7 @@
 # Assignment 2 — The Cloud-Native OVS Datapath Challenge
 
+**Lab Console:** <https://aditya-sarna.github.io/opi-assignment-2-ovs/>
+
 Two CirrOS KubeVirt VMs and a verification pod on an Open vSwitch bridge, through Multus
 and OVS-CNI on a single-node KinD cluster, with **triply-corroborated** machine-readable
 datapath evidence and a full conceptual mapping to NVIDIA BlueField-3 hardware offload.
