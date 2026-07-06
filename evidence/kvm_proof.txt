@@ -1,30 +1,10 @@
-=== Host (GitHub Actions ubuntu-latest runner) ===
-crw-rw---- 1 root kvm 10, 232 Jul  7 04:31 /dev/kvm
-vmx flag count: 12
+=== /dev/kvm on runner / KinD node ===
+crw-rw-rw- 1 root render 10, 232 Jul  6 22:40 /dev/kvm
 
-=== KinD node (ovs-kubevirt-control-plane) ===
-crw-rw---- 1 root kvm 10, 232 Jul  7 04:31 /dev/kvm
-(mounted via extraMounts in kind cluster config)
+=== vmx/svm CPU flags (count) ===
+4
 
-=== KubeVirt useEmulation configuration ===
-true
-# cluster_setup.sh sets useEmulation=true on GitHub Actions even when /dev/kvm
-# is present, because nested-KVM in containers on GHA is unreliable (random
-# SIGILL under load). This means QEMU runs under -accel tcg (software emulation)
-# rather than -accel kvm (hardware acceleration).
+=== KubeVirt useEmulation ===
 
-=== QEMU accelerator flag on virt-launcher-vm-a ===
--accel tcg
-# Matches useEmulation=true. On a bare-metal or dedicated VM Linux host with
-# reliable nested-KVM, cluster_setup.sh takes the KVM path automatically
-# (it only sets useEmulation when in GITHUB_ACTIONS env and /dev/kvm is absent
-# from the node). A KVM run would show: -accel kvm
-
-=== What a real-KVM run looks like (reference) ===
-# useEmulation: (empty = not set => real KVM)
-# -accel kvm
-# Boot time for CirrOS: ~30s (vs ~5min under TCG)
-# The datapath evidence is identical; only boot speed differs.
-
-=== OVS version ===
-ovs-vsctl (Open vSwitch) 3.5.0
+=== QEMU accel flag (virt-launcher-vm-a) ===
+-accel kvm

@@ -1,29 +1,14 @@
-=== Execution mode of the committed run (GitHub Actions ubuntu-latest) ===
-generated_by:      cluster_setup.sh capture_ovs_evidence()
-timestamp_utc:     2026-07-06T20:14:43Z
-bridge:            br1
-node:              ovs-kubevirt-control-plane
-ovs_version:       ovs-vsctl (Open vSwitch) 3.5.0
-flow_dump_method:  parsed-from-text
-access_vlans:      [100]
+=== KubeVirt useEmulation ===
 
-=== KubeVirt developerConfiguration.useEmulation ===
-true
-# cluster_setup.sh sets useEmulation=true when running in GITHUB_ACTIONS, even
-# if /dev/kvm is present (which it is on ubuntu-latest). The reason: nested-KVM
-# inside a KinD container on GHA is unreliable under load and causes random SIGILL
-# crashes. So virt-launcher runs QEMU under -accel tcg (software emulation, TCG).
-# On a bare-metal Linux host with reliable nested-KVM, the script takes the KVM
-# path automatically. See evidence/kvm_proof.txt for full detail.
 
-=== /dev/kvm on the KinD node ===
-present (mounted via extraMounts from the GHA runner into the KinD container).
-(virt-launcher still uses TCG because useEmulation=true; see above.)
+=== /dev/kvm on node ovs-kubevirt-control-plane ===
+crw-rw-rw- 1 root render 10, 232 Jul  6 22:40 /dev/kvm
 
 === QEMU accelerator flag on virt-launcher-vm-a ===
--accel tcg
-# Matches useEmulation=true. The OVS datapath evidence is identical regardless
-# of whether QEMU uses KVM or TCG; only boot speed differs.
+-accel kvm
 
 === ovs-vsctl --version on node ===
 ovs-vsctl (Open vSwitch) 3.5.0
+
+=== node ===
+ovs-kubevirt-control-plane
