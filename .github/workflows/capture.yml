@@ -44,6 +44,12 @@ jobs:
       - name: Show disk after cleanup
         run: df -h && docker system df || true
 
+      - name: Enable KVM on runner
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm trigger --name-match=kvm
+          ls -la /dev/kvm && echo "KVM available" || echo "WARNING: no /dev/kvm on this runner"
+
       - name: Install expect (for VM↔VM console pings)
         run: sudo apt-get update -qq && sudo apt-get install -y expect
 
@@ -75,6 +81,13 @@ jobs:
           # Flow-hit summary — single-line python3 -c to stay within YAML block scalar.
           echo "=== flow-hit summary ==="
           python3 -c "import json; d=json.load(open('verification_flows.json')); [print(f'  {f[\"match\"]:<30s}  n_packets={f[\"n_packets\"]}') for f in d['flows'] if 'nw_src' in f.get('match','') or 'arp' in f.get('match','')]; print(f'  datapath_flows={len(d[\"datapath_flows\"])}  fdb={len(d[\"fdb\"])}')"
+
+      - name: Show KVM proof
+        run: |
+          echo "=== kvm_proof.txt ==="
+          cat evidence/kvm_proof.txt || true
+          echo "=== execution_mode.txt ==="
+          cat evidence/execution_mode.txt || true
 
       - name: Upload evidence
         uses: actions/upload-artifact@v4

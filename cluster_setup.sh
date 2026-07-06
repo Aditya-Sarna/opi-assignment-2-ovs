@@ -359,10 +359,12 @@ install_kubevirt() {
     kubectl -n kubevirt patch deployment virt-operator --type merge -p '{"spec":{"replicas":1}}'
   fi
   kubectl apply -f "https://github.com/kubevirt/kubevirt/releases/download/${release}/kubevirt-cr.yaml"
-  if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
-    log "GHA: enabling useEmulation (nested KVM is unreliable on Actions runners)"
+  if [[ -n "${GITHUB_ACTIONS:-}" ]] && ! node_has_kvm; then
+    log "GHA: no /dev/kvm in node — enabling KubeVirt software emulation"
     kubectl -n kubevirt patch kubevirt kubevirt --type merge \
       -p '{"spec":{"configuration":{"developerConfiguration":{"useEmulation":true}}}}'
+  elif [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+    log "GHA: /dev/kvm is present in node — using real KVM acceleration"
   fi
   wait_kubevirt_available "${kv_timeout}"
 
@@ -618,6 +620,31 @@ capture_execution_mode() {
     echo "=== node ==="
     echo "${node}"
   } > "${EVIDENCE_DIR}/execution_mode.txt"
+
+  # kvm_proof.txt — separate artifact showing /dev/kvm presence + accel mode
+  {
+    echo "=== /dev/kvm on runner / KinD node ==="
+    ${oci} exec "${node}" sh -c 'ls -la /dev/kvm 2>/dev/null || echo "(no /dev/kvm)"'
+    echo
+    echo "=== vmx/svm CPU flags (count) ==="
+    grep -cE 'vmx|svm' /proc/cpuinfo 2>/dev/null || echo "(not on Linux host or no /proc/cpuinfo)"
+    echo
+    echo "=== KubeVirt useEmulation ==="
+    kubectl -n kubevirt get kubevirt kubevirt \
+      -o jsonpath='{.spec.configuration.developerConfiguration.useEmulation}' 2>/dev/null \
+      || echo "(none)"
+    echo
+    echo "=== QEMU accel flag (virt-launcher-vm-a) ==="
+    local launcher2
+    launcher2="$(kubectl get pods -l kubevirt.io/domain=vm-a -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+    if [[ -n "${launcher2}" ]]; then
+      kubectl exec "${launcher2}" -- sh -c \
+        "ps -ef | grep -oE '\-accel [a-z]+' | head -1" 2>/dev/null \
+        || echo "(could not read accel flag)"
+    else
+      echo "(no virt-launcher pod found)"
+    fi
+  } > "${EVIDENCE_DIR}/kvm_proof.txt"
 }
 
 capture_ovs_evidence() {
