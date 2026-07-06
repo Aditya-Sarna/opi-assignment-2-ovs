@@ -44,17 +44,48 @@ jobs:
       - name: Show disk after cleanup
         run: df -h && docker system df || true
 
+      - name: Install expect (for VM↔VM console pings)
+        run: sudo apt-get update -qq && sudo apt-get install -y expect
+
       - name: Run cluster_setup.sh
         run: |
-          chmod +x cluster_setup.sh
+          chmod +x cluster_setup.sh verify_datapath.sh flows_to_json.py
           ./cluster_setup.sh
 
       - name: Verify artifacts
         run: |
           test -f ping_results.txt
           test -f verification_flows.json
-          n=$(grep -c '0% packet loss' ping_results.txt); echo "ping blocks: $n"; [ "$n" -ge 2 ]
+          test -d evidence
+          test -f evidence/flows_raw.txt
+          test -f evidence/execution_mode.txt
+          n=$(grep -c '0% packet loss' ping_results.txt); echo "ping 0%-loss blocks: $n"; [ "$n" -ge 4 ]
           python3 -c "import json; d=json.load(open('verification_flows.json')); assert d['flows'] and d['fdb']"
+          # Assert classifier rules actually fired (nw_src= rules must have n_packets > 0)
+          python3 -c "
+import json, sys
+d = json.load(open('verification_flows.json'))
+classifier = [f for f in d['flows'] if 'nw_src' in f.get('match','')]
+if not classifier:
+    sys.exit('ERROR: no nw_src= classifier rules found in flows')
+zero = [f for f in classifier if f.get('n_packets',0) == 0]
+if zero:
+    sys.exit(f'ERROR: classifier rules with n_packets=0: {[f[\"match\"] for f in zero]}')
+print('classifier rules OK:', [(f[\"match\"], f[\"n_packets\"]) for f in classifier])
+"
+          # Confirm the raw-text evidence is a valid input to the standalone parser.
+          python3 flows_to_json.py --bundle evidence --bridge br1 > /tmp/roundtrip.json
+          python3 -c "import json; d=json.load(open('/tmp/roundtrip.json')); assert d['flows'] and d['fdb'] and d['datapath_flows']"
+          # B3: print n_packets per classifier rule so every run shows flow-hit evidence
+          echo "=== flow-hit summary (n_packets per nw_src= classifier rule) ==="
+          python3 -c "
+          import json
+          d = json.load(open('verification_flows.json'))
+          classifier = [f for f in d['flows'] if 'nw_src' in f.get('match','') or 'arp' in f.get('match','')]
+          for f in classifier:
+              print(f'  {f[\"match\"]:<30s}  n_packets={f[\"n_packets\"]}')
+          print(f'  datapath_flows: {len(d[\"datapath_flows\"])}   fdb_entries: {len(d[\"fdb\"])}')
+          "
 
       - name: Upload evidence
         uses: actions/upload-artifact@v4
@@ -63,3 +94,4 @@ jobs:
           path: |
             ping_results.txt
             verification_flows.json
+            evidence/

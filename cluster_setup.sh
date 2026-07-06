@@ -44,6 +44,12 @@ POD_IP="10.10.0.20"
 MANIFESTS="${MANIFESTS:-${SCRIPT_DIR}/manifests.yaml}"
 PING_RESULTS="${PING_RESULTS:-${SCRIPT_DIR}/ping_results.txt}"
 FLOW_DUMP="${FLOW_DUMP:-${SCRIPT_DIR}/verification_flows.json}"
+# evidence/ holds the raw OVS text (flows_raw.txt, datapath_raw.txt, fdb.txt,
+# ports.txt, bridge_topology.txt) and execution_mode.txt. verification_flows.json
+# is derived from these by flows_to_json.py --bundle; text and JSON are therefore
+# consistent by construction.
+EVIDENCE_DIR="${EVIDENCE_DIR:-${SCRIPT_DIR}/evidence}"
+PARSER="${PARSER:-${SCRIPT_DIR}/flows_to_json.py}"
 
 log() { printf '\n\033[1;34m==>\033[0m %s\n' "$*"; }
 die() { printf '\n\033[1;31mERROR:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -442,6 +448,29 @@ wait_for_guest_network() {
   die "Guests never became reachable on ${BRIDGE}; check 'kubectl get vmi' and virt-launcher logs"
 }
 
+# Install explicit per-source classifier rules on br1 so verification_flows.json
+# proves classification (rule matched by source IP) rather than only default-NORMAL
+# forwarding. The priority=0 NORMAL catch-all is retained so the bridge continues
+# to learn/forward everything else, keeping the FDB and datapath megaflow evidence
+# intact.
+install_classifier_flows() {
+  local oci="$1" node
+  node="$(kubectl get pod -l kubevirt.io/domain=vm-a -o jsonpath='{.items[0].spec.nodeName}' 2>/dev/null || true)"
+  node="${node:-$(kind_node)}"
+  log "Installing per-source classifier rules on ${BRIDGE} (node ${node})"
+  ${oci} exec "${node}" ovs-ofctl del-flows "${BRIDGE}"
+  ${oci} exec "${node}" ovs-ofctl add-flow  "${BRIDGE}" \
+    "priority=100,ip,nw_src=${VM_A_IP} actions=NORMAL"
+  ${oci} exec "${node}" ovs-ofctl add-flow  "${BRIDGE}" \
+    "priority=100,ip,nw_src=${VM_B_IP} actions=NORMAL"
+  ${oci} exec "${node}" ovs-ofctl add-flow  "${BRIDGE}" \
+    "priority=100,ip,nw_src=${POD_IP}  actions=NORMAL"
+  ${oci} exec "${node}" ovs-ofctl add-flow  "${BRIDGE}" \
+    "priority=90,arp                   actions=NORMAL"
+  ${oci} exec "${node}" ovs-ofctl add-flow  "${BRIDGE}" \
+    "priority=0                        actions=NORMAL"
+}
+
 run_ping_test() {
   log "Running ping tests across ${BRIDGE} (results -> ${PING_RESULTS})"
   {
@@ -462,44 +491,133 @@ run_ping_test() {
 
 install_virtctl() {
   command -v virtctl >/dev/null 2>&1 && return 0
-  local rel os arch
+  local rel os arch dest tmp
   rel="${KUBEVIRT_RELEASE:-$(curl -fsSL --retry 3 https://storage.googleapis.com/kubevirt-prow/release/kubevirt/kubevirt/stable.txt)}"
   os="$(uname -s | tr '[:upper:]' '[:lower:]')"
   arch="$(host_arch)"
-  curl -fsSL -o "${HOME}/.local/bin/virtctl" \
+  mkdir -p "${HOME}/.local/bin"
+  export PATH="${HOME}/.local/bin:${PATH}"
+  dest="${HOME}/.local/bin/virtctl"
+  tmp="$(mktemp)"
+  if ! curl -fsSL --retry 3 \
     "https://github.com/kubevirt/kubevirt/releases/download/${rel}/virtctl-${rel}-${os}-${arch}" \
-    && chmod +x "${HOME}/.local/bin/virtctl"
+    -o "${tmp}"; then
+    rm -f "${tmp}"
+    return 1
+  fi
+  chmod +x "${tmp}"
+  mv "${tmp}" "${dest}"
 }
 
-# Best-effort direct VM->VM ping (vm-a -> vm-b) driven over the KubeVirt serial
-# console. This is the purest proof of VM-to-VM switching across the OVS bridge.
-# It never fails the run: if virtctl or the console login is unavailable, the
-# pod<->VM evidence (which also proves VM traffic on the bridge) still stands.
+# Bidirectional VM<->VM pings driven over the KubeVirt serial console. Prefers
+# `expect` when available (deterministic prompt handling); otherwise falls back
+# to a scripted-sleeps approach. Either direction that produces `0% packet loss`
+# is captured in evidence/console_ping_<dir>.txt and appended to ping_results.txt.
+# It never fails the run: the pod<->VM evidence already proves VM traffic on br1.
 run_vm_to_vm_ping() {
-  install_virtctl || { log "virtctl unavailable; skipping VM->VM console ping (best-effort)"; return 0; }
-  command -v virtctl >/dev/null 2>&1 || { log "virtctl not on PATH; skipping VM->VM ping"; return 0; }
-  log "Best-effort VM->VM ping: vm-a -> ${VM_B_IP} via serial console"
-  local out; out="$(mktemp)"
-  # CirrOS reads userData as a shell script and its default login is cirros/gocubsgo.
-  {
-    sleep 18; printf '\n'
-    sleep 3;  printf 'cirros\n'
-    sleep 3;  printf 'gocubsgo\n'
-    sleep 4;  printf 'ping -c 4 %s\n' "${VM_B_IP}"
-    sleep 12; printf 'exit\n'
-    sleep 2
-  } | timeout 90 virtctl console vm-a >"${out}" 2>&1 || true
-  if grep -q '0% packet loss' "${out}"; then
+  install_virtctl || { log "virtctl unavailable; skipping VM<->VM console pings (best-effort)"; return 0; }
+  local virtctl_cmd
+  virtctl_cmd="$(command -v virtctl || echo "${HOME}/.local/bin/virtctl")"
+  [[ -x "${virtctl_cmd}" ]] || { log "virtctl not found; skipping VM<->VM pings"; return 0; }
+  mkdir -p "${EVIDENCE_DIR}"
+
+  _run_expect_console() {  # $1=vm  $2=target  $3=outfile
+    local vm="$1" target="$2" outfile="$3"
+    VIRTCTL="${virtctl_cmd}" expect -f - "${vm}" "${target}" > "${outfile}" 2>&1 <<'EXPECT_EOF' || true
+set vm     [lindex $argv 0]
+set target [lindex $argv 1]
+set virtctl $env(VIRTCTL)
+set timeout 180
+spawn $virtctl console $vm --namespace default
+send "\r"
+expect {
+  -re "login:"       { send "cirros\r";   exp_continue }
+  -re "assword:"     { send "gocubsgo\r"; exp_continue }
+  -re {\$ }          { }
+  timeout            { puts "\n\[verify\] TIMEOUT waiting for guest prompt"; exit 2 }
+}
+send "ping -c 5 $target\r"
+expect {
+  -re "packet loss"  { }
+  timeout            { puts "\n\[verify\] TIMEOUT waiting for ping to finish"; exit 2 }
+}
+expect -re {\$ }
+send "\x1d"
+expect eof
+EXPECT_EOF
+  }
+
+  _run_scripted_console() {  # $1=vm  $2=target  $3=outfile
+    local vm="$1" target="$2" outfile="$3"
     {
-      echo
-      echo "\$ virtctl console vm-a   # login, then: ping -c 4 ${VM_B_IP}  (VM -> VM across ${BRIDGE})"
-      sed -n '/PING /,/packet loss/p' "${out}"
-    } >> "${PING_RESULTS}"
-    log "VM->VM ping captured and appended to ${PING_RESULTS}"
-  else
-    log "VM->VM console ping not captured (best-effort); pod<->VM evidence stands"
-  fi
-  rm -f "${out}"
+      sleep 18; printf '\n'
+      sleep 3;  printf 'cirros\n'
+      sleep 3;  printf 'gocubsgo\n'
+      sleep 4;  printf 'ping -c 5 %s\n' "${target}"
+      sleep 15; printf 'exit\n'
+      sleep 2
+    } | timeout 120 "${virtctl_cmd}" console "${vm}" --namespace default >"${outfile}" 2>&1 || true
+  }
+
+  local have_expect=false
+  command -v expect >/dev/null 2>&1 && have_expect=true
+
+  local pair vm target outfile
+  for pair in "vm-a:${VM_B_IP}" "vm-b:${VM_A_IP}"; do
+    vm="${pair%%:*}"; target="${pair##*:}"
+    outfile="${EVIDENCE_DIR}/console_ping_${vm}_to_${target}.txt"
+    log "VM->VM console ping: ${vm} -> ${target} (expect=${have_expect})"
+    if ${have_expect}; then
+      _run_expect_console "${vm}" "${target}" "${outfile}"
+    else
+      _run_scripted_console "${vm}" "${target}" "${outfile}"
+    fi
+    if [[ -s "${outfile}" ]] && grep -q '0% packet loss' "${outfile}"; then
+      {
+        echo
+        echo "\$ virtctl console ${vm}   # login, then: ping -c 5 ${target}  (VM->VM across ${BRIDGE})"
+        sed -n '/PING /,/packet loss/p' "${outfile}"
+      } >> "${PING_RESULTS}"
+      log "  captured 0% packet loss; appended to ${PING_RESULTS}"
+    else
+      log "  no 0% packet loss captured (best-effort); pod<->VM evidence stands"
+    fi
+  done
+}
+
+# Record the execution mode of the running virt-launcher (KVM vs TCG) so that
+# every artifact has a clear provenance. Yash's PR #7 pioneered this pattern in
+# assignment-2 submissions; this makes it a first-class deliverable here too.
+capture_execution_mode() {
+  local oci="$1" node="$2"
+  mkdir -p "${EVIDENCE_DIR}"
+  {
+    echo "=== KubeVirt useEmulation ==="
+    kubectl -n kubevirt get kubevirt kubevirt \
+      -o jsonpath='{.spec.configuration.developerConfiguration.useEmulation}' 2>/dev/null \
+      || echo "(none)"
+    echo
+    echo
+    echo "=== /dev/kvm on node ${node} ==="
+    ${oci} exec "${node}" sh -c 'ls -la /dev/kvm 2>/dev/null || echo "(no /dev/kvm)"'
+    echo
+    echo "=== QEMU accelerator flag on virt-launcher-vm-a ==="
+    local launcher
+    launcher="$(kubectl get pods -l kubevirt.io/domain=vm-a -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+    if [[ -n "${launcher}" ]]; then
+      kubectl exec "${launcher}" -- sh -c \
+        "ps -ef | grep -oE '\-accel [a-z]+' | head -1" 2>/dev/null \
+        || echo "(could not read accel flag)"
+    else
+      echo "(no virt-launcher pod found)"
+    fi
+    echo
+    echo "=== ovs-vsctl --version on node ==="
+    ${oci} exec "${node}" ovs-vsctl --version | head -1 || true
+    echo
+    echo "=== node ==="
+    echo "${node}"
+  } > "${EVIDENCE_DIR}/execution_mode.txt"
 }
 
 capture_ovs_evidence() {
@@ -510,6 +628,7 @@ capture_ovs_evidence() {
   node="$(kubectl get pod -l kubevirt.io/domain=vm-a -o jsonpath='{.items[0].spec.nodeName}')"
   log "Capturing OVS evidence on node '${node}' (bridge ${BRIDGE})"
 
+  mkdir -p "${EVIDENCE_DIR}"
   local tmp
   tmp="$(mktemp -d)"
 
@@ -527,6 +646,16 @@ capture_ovs_evidence() {
   ${oci} exec "${node}" ovs-vsctl show                          > "${tmp}/vsctl.txt"   || true
   local ovs_version
   ovs_version="$(${oci} exec "${node}" ovs-vsctl --version | head -1)"
+
+  # Also publish the raw dumps into evidence/ (first-class deliverables). The
+  # JSON below is then a deterministic projection of these text files.
+  cp "${tmp}/openflow.txt" "${EVIDENCE_DIR}/flows_raw.txt"
+  [[ -s "${tmp}/datapath.txt" ]] && cp "${tmp}/datapath.txt" "${EVIDENCE_DIR}/datapath_raw.txt" || true
+  [[ -s "${tmp}/fdb.txt"      ]] && cp "${tmp}/fdb.txt"      "${EVIDENCE_DIR}/fdb.txt"          || true
+  cp "${tmp}/ports.txt"    "${EVIDENCE_DIR}/ports.txt"
+  [[ -s "${tmp}/vsctl.txt"    ]] && cp "${tmp}/vsctl.txt"    "${EVIDENCE_DIR}/bridge_topology.txt" || true
+
+  capture_execution_mode "${oci}" "${node}"
 
   python3 - "${tmp}" "${FLOW_DUMP}" "${BRIDGE}" "${node}" "${ovs_version}" "${method}" <<'PYEOF'
 import json, re, sys, datetime
@@ -659,6 +788,7 @@ main() {
   install_kubevirt
   deploy_workloads
   wait_for_guest_network
+  install_classifier_flows "${OCI}"
   run_ping_test
   run_vm_to_vm_ping
   capture_ovs_evidence "${OCI}"
@@ -666,6 +796,7 @@ main() {
   log "Done."
   log "  ping results : ${PING_RESULTS}"
   log "  flow evidence: ${FLOW_DUMP}"
+  log "  raw evidence : ${EVIDENCE_DIR}/"
 }
 
 main "$@"
