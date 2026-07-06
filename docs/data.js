@@ -274,8 +274,75 @@ window.APP_DATA = {
   "bridgeTopology": "ee01dffb-96be-4de0-bd30-6a310f8321f6\n    Bridge br1\n        fail_mode: standalone\n        Port veth0cd36616\n            tag: 100\n            Interface veth0cd36616\n        Port veth643da979\n            tag: 100\n            Interface veth643da979\n        Port veth643d6326\n            tag: 100\n            Interface veth643d6326\n        Port br1\n            Interface br1\n                type: internal\n    ovs_version: \"3.5.0\"\n",
   "pingBlocks": 4,
   "pingText": "$ kubectl exec ovs-ping-pod -- ping -c 4 10.10.0.10\nPING 10.10.0.10 (10.10.0.10): 56 data bytes\n64 bytes from 10.10.0.10: seq=0 ttl=64 time=0.601 ms\n64 bytes from 10.10.0.10: seq=1 ttl=64 time=0.455 ms\n64 bytes from 10.10.0.10: seq=2 ttl=64 time=0.967 ms\n64 bytes from 10.10.0.10: seq=3 ttl=64 time=0.557 ms\n\n--- 10.10.0.10 ping statistics ---\n4 packets transmitted, 4 packets received, 0% packet loss\nround-trip min/avg/max = 0.455/0.645/0.967 ms\n\n$ kubectl exec ovs-ping-pod -- ping -c 4 10.10.0.11\nPING 10.10.0.11 (10.10.0.11): 56 data bytes\n64 bytes from 10.10.0.11: seq=0 ttl=64 time=0.693 ms\n64 bytes from 10.10.0.11: seq=1 ttl=64 time=0.503 ms\n64 bytes from 10.10.0.11: seq=2 ttl=64 time=0.491 ms\n64 bytes from 10.10.0.11: seq=3 ttl=64 time=0.485 ms\n\n--- 10.10.0.11 ping statistics ---\n4 packets transmitted, 4 packets received, 0% packet loss\nround-trip min/avg/max = 0.485/0.543/0.693 ms\n\n--- VM\u2194VM direct pings across br1 (via virtctl console + expect) ---\nThese pings originate from inside the CirrOS guest. 10.10.0.0/24 only\nroutes through br1 (eth1), so success proves VM-to-VM switching in OVS.\n\n----- DIRECTION 3: vm-a (10.10.0.10) -> vm-b (10.10.0.11) [from vm-a console] -----\n\nspawn virtctl console vm-a --namespace default\n\nSuccessfully connected to vm-a console. Press Ctrl+] or Ctrl+5 to exit console.\n\nlogin as 'cirros' user. default password: 'gocubsgo'. use 'sudo' for root.\nvm-a login: cirros\nPassword: \n$ ping -c 5 10.10.0.11\nPING 10.10.0.11 (10.10.0.11): 56 data bytes\n64 bytes from 10.10.0.11: seq=0 ttl=64 time=2.183 ms\n64 bytes from 10.10.0.11: seq=1 ttl=64 time=1.547 ms\n64 bytes from 10.10.0.11: seq=2 ttl=64 time=1.891 ms\n64 bytes from 10.10.0.11: seq=3 ttl=64 time=2.054 ms\n64 bytes from 10.10.0.11: seq=4 ttl=64 time=1.723 ms\n\n--- 10.10.0.11 ping statistics ---\n5 packets transmitted, 5 packets received, 0% packet loss\nround-trip min/avg/max = 1.547/1.879/2.183 ms\n\n----- DIRECTION 4: vm-b (10.10.0.11) -> vm-a (10.10.0.10) [from vm-b console] -----\n\nspawn virtctl console vm-b --namespace default\n\nSuccessfully connected to vm-b console. Press Ctrl+] or Ctrl+5 to exit console.\n\nlogin as 'cirros' user. default password: 'gocubsgo'. use 'sudo' for root.\nvm-b login: cirros\nPassword: \n$ ping -c 5 10.10.0.10\nPING 10.10.0.10 (10.10.0.10): 56 data bytes\n64 bytes from 10.10.0.10: seq=0 ttl=64 time=1.934 ms\n64 bytes from 10.10.0.10: seq=1 ttl=64 time=1.682 ms\n64 bytes from 10.10.0.10: seq=2 ttl=64 time=2.011 ms\n64 bytes from 10.10.0.10: seq=3 ttl=64 time=1.758 ms\n64 bytes from 10.10.0.10: seq=4 ttl=64 time=1.621 ms\n\n--- 10.10.0.10 ping statistics ---\n5 packets transmitted, 5 packets received, 0% packet loss\nround-trip min/avg/max = 1.621/1.801/2.011 ms\n",
+  "pingDirections": [
+    {
+      "id": "pod-to-vm-a",
+      "label": "pod \u2192 vm-a",
+      "source": "ovs-ping-pod",
+      "target": "vm-a",
+      "targetIp": "10.10.0.10",
+      "method": "kubectl",
+      "pass": true,
+      "ttl64": true,
+      "text": "$ kubectl exec ovs-ping-pod -- ping -c 4 10.10.0.10\nPING 10.10.0.10 (10.10.0.10): 56 data bytes\n64 bytes from 10.10.0.10: seq=0 ttl=64 time=0.601 ms\n64 bytes from 10.10.0.10: seq=1 ttl=64 time=0.455 ms\n64 bytes from 10.10.0.10: seq=2 ttl=64 time=0.967 ms\n64 bytes from 10.10.0.10: seq=3 ttl=64 time=0.557 ms\n\n--- 10.10.0.10 ping statistics ---\n4 packets transmitted, 4 packets received, 0% packet loss\nround-trip min/avg/max = 0.455/0.645/0.967 ms"
+    },
+    {
+      "id": "pod-to-vm-b",
+      "label": "pod \u2192 vm-b",
+      "source": "ovs-ping-pod",
+      "target": "vm-b",
+      "targetIp": "10.10.0.11",
+      "method": "kubectl",
+      "pass": true,
+      "ttl64": true,
+      "text": "$ kubectl exec ovs-ping-pod -- ping -c 4 10.10.0.11\nPING 10.10.0.11 (10.10.0.11): 56 data bytes\n64 bytes from 10.10.0.11: seq=0 ttl=64 time=0.693 ms\n64 bytes from 10.10.0.11: seq=1 ttl=64 time=0.503 ms\n64 bytes from 10.10.0.11: seq=2 ttl=64 time=0.491 ms\n64 bytes from 10.10.0.11: seq=3 ttl=64 time=0.485 ms\n\n--- 10.10.0.11 ping statistics ---\n4 packets transmitted, 4 packets received, 0% packet loss\nround-trip min/avg/max = 0.485/0.543/0.693 ms\n\n--- VM\u2194VM direct pings across br1 (via virtctl console + expect) ---\nThese pings originate from inside the CirrOS guest. 10.10.0.0/24 only\nroutes through br1 (eth1), so success proves VM-to-VM switching in OVS.\n\n-----"
+    },
+    {
+      "id": "vm-a-to-vm-b",
+      "label": "vm-a \u2192 vm-b",
+      "source": "vm-a",
+      "target": "vm-b",
+      "targetIp": "10.10.0.11",
+      "method": "virtctl",
+      "pass": true,
+      "ttl64": true,
+      "text": "DIRECTION 3: vm-a (10.10.0.10) -> vm-b (10.10.0.11) [from vm-a console] -----\n\nspawn virtctl console vm-a --namespace default\n\nSuccessfully connected to vm-a console. Press Ctrl+] or Ctrl+5 to exit console.\n\nlogin as 'cirros' user. default password: 'gocubsgo'. use 'sudo' for root.\nvm-a login: cirros\nPassword: \n$ ping -c 5 10.10.0.11\nPING 10.10.0.11 (10.10.0.11): 56 data bytes\n64 bytes from 10.10.0.11: seq=0 ttl=64 time=2.183 ms\n64 bytes from 10.10.0.11: seq=1 ttl=64 time=1.547 ms\n64 bytes from 10.10.0.11: seq=2 ttl=64 time=1.891 ms\n64 bytes from 10.10.0.11: seq=3 ttl=64 time=2.054 ms\n64 bytes from 10.10.0.11: seq=4 ttl=64 time=1.723 ms\n\n--- 10.10.0.11 ping statistics ---\n5 packets transmitted, 5 packets received, 0% packet loss\nround-trip min/avg/max = 1.547/1.879/2.183 ms\n\n-----"
+    },
+    {
+      "id": "vm-b-to-vm-a",
+      "label": "vm-b \u2192 vm-a",
+      "source": "vm-b",
+      "target": "vm-a",
+      "targetIp": "10.10.0.10",
+      "method": "virtctl",
+      "pass": true,
+      "ttl64": true,
+      "text": "DIRECTION 4: vm-b (10.10.0.11) -> vm-a (10.10.0.10) [from vm-b console] -----\n\nspawn virtctl console vm-b --namespace default\n\nSuccessfully connected to vm-b console. Press Ctrl+] or Ctrl+5 to exit console.\n\nlogin as 'cirros' user. default password: 'gocubsgo'. use 'sudo' for root.\nvm-b login: cirros\nPassword: \n$ ping -c 5 10.10.0.10\nPING 10.10.0.10 (10.10.0.10): 56 data bytes\n64 bytes from 10.10.0.10: seq=0 ttl=64 time=1.934 ms\n64 bytes from 10.10.0.10: seq=1 ttl=64 time=1.682 ms\n64 bytes from 10.10.0.10: seq=2 ttl=64 time=2.011 ms\n64 bytes from 10.10.0.10: seq=3 ttl=64 time=1.758 ms\n64 bytes from 10.10.0.10: seq=4 ttl=64 time=1.621 ms\n\n--- 10.10.0.10 ping statistics ---\n5 packets transmitted, 5 packets received, 0% packet loss\nround-trip min/avg/max = 1.621/1.801/2.011 ms"
+    }
+  ],
   "flowsBefore": "NXST_FLOW reply (xid=0x4):\n cookie=0x0, duration=175.170s, table=0, n_packets=103, n_bytes=8490, idle_age=1, priority=0 actions=NORMAL\n",
   "flowsAfter": "NXST_FLOW reply (xid=0x4):\n cookie=0x0, duration=45.231s, table=0, n_packets=14, n_bytes=1372, idle_age=0, priority=100,ip,nw_src=10.10.0.10 actions=NORMAL\n cookie=0x0, duration=45.128s, table=0, n_packets=14, n_bytes=1372, idle_age=0, priority=100,ip,nw_src=10.10.0.11 actions=NORMAL\n cookie=0x0, duration=45.015s, table=0, n_packets=8, n_bytes=784, idle_age=1, priority=100,ip,nw_src=10.10.0.20 actions=NORMAL\n cookie=0x0, duration=44.998s, table=0, n_packets=8, n_bytes=336, idle_age=3, priority=90,arp actions=NORMAL\n cookie=0x0, duration=44.876s, table=0, n_packets=15, n_bytes=1260, idle_age=5, priority=0 actions=NORMAL\n",
+  "executionMode": {
+    "useEmulation": "true",
+    "accel": "-accel tcg",
+    "kvmPresent": true,
+    "raw": "=== Execution mode of the committed run (GitHub Actions ubuntu-latest) ===\ngenerated_by:      cluster_setup.sh capture_ovs_evidence()\ntimestamp_utc:     2026-07-06T20:14:43Z\nbridge:            br1\nnode:              ovs-kubevirt-control-plane\novs_version:       ovs-vsctl (Open vSwitch) 3.5.0\nflow_dump_method:  parsed-from-text\naccess_vlans:      [100]\n\n=== KubeVirt developerConfiguration.useEmulation ===\ntrue\n# cluster_setup.sh sets useEmulation=true when running in GITHUB_ACTIONS, even\n# if /dev/kvm is present (which it is on ubuntu-latest). The reason: nested-KVM\n# inside a KinD container on GHA is unreliable under load and causes random SIGILL\n# crashes. So virt-launcher runs QEMU under -accel tcg (software emulation, TCG).\n# On a bare-metal Linux host with reliable nested-KVM, the script takes the KVM\n# path automatically. See evidence/kvm_proof.txt for full detail.\n\n=== /dev/kvm on the KinD node ===\npresent (mounted via extraMounts from the GHA runner into the KinD container).\n(virt-launcher still uses TCG because useEmulation=true; see above.)\n\n=== QEMU accelerator flag on virt-launcher-vm-a ===\n-accel tcg\n# Matches useEmulation=true. The OVS datapath evidence is identical regardless\n# of whether QEMU uses KVM or TCG; only boot speed differs.\n\n=== ovs-vsctl --version on node ===\novs-vsctl (Open vSwitch) 3.5.0"
+  },
+  "stats": {
+    "classifierRules": 3,
+    "classifierMinPackets": 8,
+    "megaflowTotal": 20,
+    "megaflowActive": 17,
+    "megaflowMaxPackets": 5,
+    "fdbVlan100": 5,
+    "hasPushVlan": true
+  },
+  "links": {
+    "repo": "https://github.com/Aditya-Sarna/opi-assignment-2-ovs",
+    "ci": "https://github.com/Aditya-Sarna/opi-assignment-2-ovs/actions/runs/28821392090",
+    "diagram": "https://raw.githubusercontent.com/Aditya-Sarna/opi-assignment-2-ovs/main/diagrams/implemented_software_datapath_topology.png",
+    "submit": "https://github.com/Aditya-Sarna/opi-assignment-2-ovs/blob/main/SUBMIT.md"
+  },
   "topology": {
     "bridge": {
       "id": "br1",
@@ -326,40 +393,40 @@ window.APP_DATA = {
     },
     {
       "id": "kindnet",
-      "title": "Flannel to kindnet",
-      "problem": "Flannel crashed on recent kernels; subnet.env was never written; every pod sandbox failed.",
-      "fix": "Switched to KinD built-in kindnet as the default CNI. OVS bridge layered on top via Multus.",
+      "title": "Flannel \u2192 kindnet",
+      "problem": "Flannel crashed on recent kernels; every pod sandbox failed.",
+      "fix": "KinD built-in kindnet as default CNI. OVS bridge layered via Multus.",
       "proof": "cluster_setup.sh (create_cluster)"
     },
     {
       "id": "vlan100",
       "title": "VLAN 100 access ports",
-      "detail": "NAD declares vlan: 100. OVS attaches each veth as an access port that tags on ingress and strips on egress. push_vlan(vid=100) appears in datapath actions.",
-      "proof": "manifests.yaml, verification_flows.json datapath_flows"
+      "detail": "NAD declares vlan: 100. push_vlan(vid=100) appears in kernel megaflow actions.",
+      "proof": "manifests.yaml \u00b7 verification_flows.json"
     },
     {
       "id": "classifiers",
       "title": "Per-source classifier rules",
-      "detail": "install_classifier_flows() adds nw_src= rules before pings. flows_before.txt shows only the NORMAL catch-all; flows_after.txt shows all five rules with nonzero n_packets after the ping suite.",
+      "detail": "install_classifier_flows() adds nw_src= rules. flows_before = 1 NORMAL rule; flows_after = 5 rules with hits.",
       "proof": "evidence/flows_before.txt vs flows_after.txt"
     },
     {
       "id": "vmvm",
       "title": "VM-to-VM console pings",
-      "detail": "virtctl console + expect drives bidirectional ping inside the CirrOS guests. Both directions captured with 0 percent packet loss.",
-      "proof": "ping_results.txt directions 3 and 4"
+      "detail": "virtctl console + expect drives bidirectional in-guest pings across br1.",
+      "proof": "ping_results.txt \u00b7 console_ping_*.txt"
     },
     {
       "id": "megaflows",
-      "title": "Kernel megaflow cache captured",
-      "detail": "ovs-appctl dpctl/dump-flows shows 20 per-MAC-pair entries installed by the pings. These are the exact objects that get offloaded to a BlueField-3 eSwitch via OVS-DOCA.",
+      "title": "Kernel megaflow cache",
+      "detail": "dpctl/dump-flows captures per-MAC-pair entries \u2014 the objects offloaded to BlueField-3 eSwitch.",
       "proof": "verification_flows.json datapath_flows"
     },
     {
       "id": "ci",
       "title": "CI-gated reproducibility",
-      "detail": "GitHub Actions run asserts 4 ping blocks, classifier rule hits with n_packets > 0, and a parser round-trip that confirms raw text and JSON match.",
-      "proof": ".github/workflows/capture.yml, run 13"
+      "detail": "GitHub Actions fails unless \u22654 ping blocks, classifier hits, and parser round-trip pass.",
+      "proof": ".github/workflows/capture.yml"
     }
   ]
 };

@@ -57,7 +57,15 @@ Two properties of this evidence chain matter for what follows:
 
 ## 2. The software datapath, as built
 
+![Figure 1. Implemented software datapath topology.](diagrams/implemented_software_datapath_topology.png)
+
+*Figure 1.* Three endpoints on `br1` through Multus and OVS-CNI: `vm-a`, `vm-b`, and `ovs-ping-pod`, all on VLAN 100 with pinned MACs from `manifests.yaml`.
+
 Packet path when `vm-a` pings `ovs-ping-pod` across `br1`:
+
+![Figure 2. Software packet walk (vm-a → ovs-ping-pod).](diagrams/software_packet_walk.png)
+
+*Figure 2.* Every hop except the guest app runs on the host CPU until the frame is matched by OpenFlow and the kernel megaflow cache on `br1`.
 
 ```mermaid
 flowchart LR
@@ -116,6 +124,10 @@ running tenant VMs — the problem BlueField-3 exists to remove.
 ---
 
 ## 3. BlueField-3 building blocks
+
+![Figure 3. BlueField-3 offload architecture.](diagrams/bluefield3_offload_architecture.png)
+
+*Figure 3.* Same Kubernetes control-plane intent; OVS-CNI veth ports become VF representors. `ovs-vswitchd` on the DPU Arm cores installs OpenFlow into the eSwitch TCAM via `hw-offload=true` and OVS-DOCA.
 
 The BlueField-3 is not a faster NIC; it is a small computer on a NIC:
 
@@ -233,6 +245,10 @@ container-disk this repo uses would boot on a BlueField-3 node with no modificat
 ## 4. The hardware packet walk
 
 Same ping (`vm-a → ovs-ping-pod`) on a BlueField-3 node:
+
+![Figure 4. BlueField-3 vDPA packet walk.](diagrams/bluefield3_vdpa_packet_walk.png)
+
+*Figure 4.* The guest keeps `virtio-net`; vDPA doorbells and DMA bypass the host kernel after the flow is offloaded. Verification adds `offloaded:yes` in `dpctl/dump-flows`.
 
 ```mermaid
 flowchart LR

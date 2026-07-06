@@ -1,6 +1,6 @@
 # Assignment 2 — The Cloud-Native OVS Datapath Challenge
 
-**Lab Console:** <https://aditya-sarna.github.io/opi-assignment-2-ovs/>
+**Lab Console (live):** <https://aditya-sarna.github.io/opi-assignment-2-ovs/> — interactive topology, animated ping paths, flow before/after diff, searchable evidence tables. Regenerate: `./lab-console/sync.sh`.
 
 Two CirrOS KubeVirt VMs and a verification pod on an Open vSwitch bridge, through Multus
 and OVS-CNI on a single-node KinD cluster, with **triply-corroborated** machine-readable
@@ -29,7 +29,9 @@ yourself.
 | `manifests.yaml` | All Custom Resources: one `NetworkAttachmentDefinition` (**VLAN 100 access port**), two CirrOS `VirtualMachine`s, one verification pod — all on OVS bridge `br1`, L2 domain `10.10.0.0/24`, with pinned MACs. |
 | `ping_results.txt` | Raw stdout of the ping tests crossing the OVS bridge: `ovs-ping-pod` → `vm-a` and → `vm-b`, both `0% packet loss` at `ttl=64` (single L2 hop across `br1`, not a router). When `virtctl` + `expect` are available on the runner, VM→VM console pings are appended. |
 | `verification_flows.json` | Machine-readable OVS evidence: parsed OpenFlow table, kernel datapath flow-cache **megaflows** (per-MAC-pair, with packet counters), **FDB** (MAC-learning table on VLAN 100), OpenFlow ports, `bridge_topology`, and capture metadata. Deterministically derived from the raw text under `evidence/` by `flows_to_json.py --bundle`. |
-| `dpu_offload_concept.md` | The architectural shift to BlueField-3: switchdev / VF representors, vDPA, OVS-DOCA, eSwitch offload, node-to-node fabric transition, Kubernetes-native orchestration (SR-IOV device plugin + vDPA CNI + OPI + DPF), **live migration**, **failure domains**, **control/data-plane split-brain**, verification methodology deltas (`offloaded:yes, dp:tc|doca`), and honest caveats. Mermaid diagrams throughout, every claim anchored to a specific field in `verification_flows.json`. |
+| `dpu_offload_concept.md` | The architectural shift to BlueField-3: switchdev / VF representors, vDPA, OVS-DOCA, eSwitch offload, node-to-node fabric transition, Kubernetes-native orchestration (SR-IOV device plugin + vDPA CNI + OPI + DPF), **live migration**, **failure domains**, **control/data-plane split-brain**, verification methodology deltas (`offloaded:yes, dp:tc|doca`), and honest caveats. **Four PNG figures** in `diagrams/` plus Mermaid sources; every claim anchored to a specific field in `verification_flows.json`. |
+| `docs/` · `lab-console/` | **OVS Lab Console** (GitHub Pages): hero, proof cards, animated topology, 4-direction ping viewer, classifier flow diff, searchable evidence, journey timeline. `gen_data.py` + `sync.sh` rebuild `docs/data.js` from committed artifacts. |
+| `diagrams/*.png` · `diagrams/*.mmd` · `diagrams/render_diagrams.py` | Topology and packet-walk figures (software + BlueField-3). Regenerate PNGs with `python3 diagrams/render_diagrams.py`. |
 | `flows_to_json.py` | Standalone parser: reads raw `ovs-ofctl dump-flows` text on stdin (or `--bundle <dir>` for the full evidence directory) and produces the JSON schema below. Used both by `cluster_setup.sh` and by anyone re-parsing the raw evidence. |
 | `verify_datapath.sh` | Standalone, re-runnable verifier: re-asserts the flow rules, drives pod↔VM and bidirectional VM↔VM `expect` pings, regenerates every evidence file. Safe to re-run at any time. |
 | `evidence/flows_raw.txt` · `evidence/flows_before.txt` · `evidence/flows_after.txt` | Raw OVS flow captures. `flows_before.txt` = single NORMAL rule before classifier install. `flows_after.txt` = classifier rules with n_packets after the ping run. `flows_raw.txt` = committed alias of `flows_after.txt` (input for `flows_to_json.py --bundle`). |
@@ -40,22 +42,11 @@ yourself.
 
 ## Topology
 
-```
-                Kubernetes (KinD single node, kindnet default CNI, Multus + OVS-CNI)
- ┌────────────────────────────────────────────────────────────────────────┐
- │                     br1  (Open vSwitch, VLAN 100 access ports)         │
- │  ┌──────────────┐   ┌──────────────┐   ┌──────────────────────────┐    │
- │  │ vm-a         │   │ vm-b         │   │ ovs-ping-pod             │    │
- │  │ CirrOS       │   │ CirrOS       │   │ Alpine (verification)    │    │
- │  │ eth1 =       │   │ eth1 =       │   │ net1 =                   │    │
- │  │  10.10.0.10  │   │  10.10.0.11  │   │  10.10.0.20              │    │
- │  │ MAC          │   │ MAC          │   │ MAC                      │    │
- │  │  02:a0:..:0a │   │  02:a0:..:0b │   │  02:a0:..:14             │    │
- │  └──────────────┘   └──────────────┘   └──────────────────────────┘    │
- └────────────────────────────────────────────────────────────────────────┘
-     (every endpoint also keeps eth0 on the default pod network)
-   (multi-node runs add a VXLAN mesh interconnecting each node's br1 — see §7 of `dpu_offload_concept.md`)
-```
+![Figure 1. Implemented software datapath topology.](diagrams/implemented_software_datapath_topology.png)
+
+*Figure 1.* KinD single node with Multus + OVS-CNI: two CirrOS VMs and the verification pod on `br1` (VLAN 100 access ports). Every endpoint also keeps `eth0` on the default pod network. Multi-node runs add a VXLAN mesh interconnecting each node's `br1` — see §7 of `dpu_offload_concept.md`.
+
+Regenerate PNGs from the committed Mermaid sources: `python3 diagrams/render_diagrams.py` (or render the `.mmd` files with `@mermaid-js/mermaid-cli`).
 
 ## Pinned component versions
 
