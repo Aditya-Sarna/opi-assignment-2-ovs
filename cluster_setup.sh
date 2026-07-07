@@ -450,6 +450,18 @@ wait_for_guest_network() {
   die "Guests never became reachable on ${BRIDGE}; check 'kubectl get vmi' and virt-launcher logs"
 }
 
+# Snapshot flows BEFORE classifier installation so reviewers can see a clean
+# pre-classifier baseline (default NORMAL rule only, n_packets typically 0 or
+# very small from ARP/keepalives). No warm-up traffic here on purpose.
+capture_flows_before() {
+  local oci="$1" node
+  node="$(kubectl get pod -l kubevirt.io/domain=vm-a -o jsonpath='{.items[0].spec.nodeName}' 2>/dev/null || true)"
+  node="${node:-$(kind_node)}"
+  mkdir -p "${EVIDENCE_DIR}"
+  log "Capturing pre-classifier OpenFlow snapshot (-> ${EVIDENCE_DIR}/flows_before.txt)"
+  ${oci} exec "${node}" ovs-ofctl dump-flows "${BRIDGE}" > "${EVIDENCE_DIR}/flows_before.txt"
+}
+
 # Install explicit per-source classifier rules on br1 so verification_flows.json
 # proves classification (rule matched by source IP) rather than only default-NORMAL
 # forwarding. The priority=0 NORMAL catch-all is retained so the bridge continues
@@ -677,6 +689,7 @@ capture_ovs_evidence() {
   # Also publish the raw dumps into evidence/ (first-class deliverables). The
   # JSON below is then a deterministic projection of these text files.
   cp "${tmp}/openflow.txt" "${EVIDENCE_DIR}/flows_raw.txt"
+  cp "${tmp}/openflow.txt" "${EVIDENCE_DIR}/flows_after.txt"
   [[ -s "${tmp}/datapath.txt" ]] && cp "${tmp}/datapath.txt" "${EVIDENCE_DIR}/datapath_raw.txt" || true
   [[ -s "${tmp}/fdb.txt"      ]] && cp "${tmp}/fdb.txt"      "${EVIDENCE_DIR}/fdb.txt"          || true
   cp "${tmp}/ports.txt"    "${EVIDENCE_DIR}/ports.txt"
@@ -815,6 +828,7 @@ main() {
   install_kubevirt
   deploy_workloads
   wait_for_guest_network
+  capture_flows_before "${OCI}"
   install_classifier_flows "${OCI}"
   run_ping_test
   run_vm_to_vm_ping
